@@ -196,4 +196,177 @@ indefinite article (convention from Kent Beck):
 #+end_src
 ** Removing the play Variable
 ~play~ is computed from the performance, so it can actually be
-calculated within ~amountFor~, instead of being passed as a parameter.
+calculated within ~amountFor~, instead of being passed as a
+parameter. According to Fowler, temporary variables like ~play~
+``create a lot of locally scoped names that complicate
+extractions''. Let's use /Replace Temp with Query/ (178).
+
+First, we extract the right-hand side of the assignment into a
+function:
+#+begin_src js
+  // within statement's scope
+  function playFor(aPerformance) {
+    return plays[aPerformance.playID];
+  }
+#+end_src
+
+#+begin_src js
+  // top level
+  function statement (invoice, plays) {
+    let totalAmount = 0;
+    let volumeCredits = 0;
+    let result = `Statement for ${invoice.customer}\n`;
+    const format = new Intl.NumberFormat("en-US",
+                                         { style: "currency", currency: "USD",
+                                           minimumFractionDigits: 2 }).format;
+    for (let perf of invoice.performances) {
+      const play = playFor(perf);
+      let thisAmount = amountFor(perf, play);
+      // add volume credits
+      volumeCredits += Math.max(perf.audience - 30, 0);
+      // add extra credit for every ten comedy attendees
+      if ("comedy" === play.type) volumeCredits += Math.floor(perf.audience / 5);
+      // print line for this order
+      result += ` ${play.name}: ${format(thisAmount/100)} (${perf.audience} seats)\n`;
+      totalAmount += thisAmount;
+    }
+    result += `Amount owed is ${format(totalAmount/100)}\n`;
+    result += `You earned ${volumeCredits} credits\n`;
+    return result;
+#+end_src
+
+Then compile, test, commit, and use /Inline Variable/ (123).
+
+#+begin_src js
+  // top level
+  function statement (invoice, plays) {
+    let totalAmount = 0;
+    let volumeCredits = 0;
+    let result = `Statement for ${invoice.customer}\n`;
+    const format = new Intl.NumberFormat("en-US",
+                                         { style: "currency", currency: "USD",
+                                           minimumFractionDigits: 2 }).format;
+    for (let perf of invoice.performances) {
+      // const play = playFor(perf); OLD
+      let thisAmount = amountFor(perf, playFor(perf)); // <----
+      // add volume credits
+      volumeCredits += Math.max(perf.audience - 30, 0);
+      // add extra credit for every ten comedy attendees
+      if ("comedy" === playFor(perf).type) volumeCredits += Math.floor(perf.audience / 5);//<--
+      // print line for this order
+      result += ` ${playFor(perf).name}: ${format(thisAmount/100)} (${perf.audience} seats)\n`;//<--
+      totalAmount += thisAmount;
+    }
+    result += `Amount owed is ${format(totalAmount/100)}\n`;
+    result += `You earned ${volumeCredits} credits\n`;
+    return result;
+#+end_src
+
+Again: compile, test, commit. Now let's apply /Change Function
+Declaration/ (124). There will be two steps. First we use the new
+function inside ~amountFor~:
+#+begin_src js
+  // within statement's function
+  function amountFor(aPerformance, play) {
+    let result = 0;
+    switch (playFor(aPerformance).type) { // <-----
+    case "tragedy":
+      result = 40000;
+      if (aPerformance.audience > 30) {
+        result += 1000 * (aPerformance.audience - 30);
+      }
+      break;
+    case "comedy":
+      result = 30000;
+      if (aPerformance.audience > 20) {
+        result += 10000 + 500 * (aPerformance.audience - 20);
+      }
+      result += 300 * aPerformance.audience;
+      break;
+    default:
+      throw new Error(`unknown type: ${playFor(aPerformance).type}`); // <-----
+    }
+#+end_src
+
+Two, compile, test, commit, and delete the parameter:
+
+#+begin_src js
+    // at top level
+    function statement (invoice, plays) {
+      let totalAmount = 0;
+      let volumeCredits = 0;
+      let result = `Statement for ${invoice.customer}\n`;
+      const format = new Intl.NumberFormat("en-US",
+                                           { style: "currency", currency: "USD",
+                                             minimumFractionDigits: 2 }).format;
+      for (let perf of invoice.performances) {
+        // let thisAmount = amountFor(perf, playFor(perf)); OLD <------------------------
+        let thisAmount = amountFor(perf); // NEW
+        // add volume credits
+        volumeCredits += Math.max(perf.audience - 30, 0);
+        // add extra credit for every ten comedy attendees
+        if ("comedy" === playFor(perf).type) volumeCredits += Math.floor(perf.audience / 5);
+        // print line for this order
+        result += ` ${playFor(perf).name}: ${format(thisAmount/100)} (${perf.audience} seats)\n`;
+        totalAmount += thisAmount;
+      }
+      result += `Amount owed is ${format(totalAmount/100)}\n`;
+      result += `You earned ${volumeCredits} credits\n`;
+      return result;
+#+end_src
+
+#+begin_src js
+  // within statement's scope
+  function amountFor(aPerformance, play) {
+    let result = 0;
+    switch (playFor(aPerformance).type) {
+    case "tragedy":
+      result = 40000;
+      if (aPerformance.audience > 30) {
+        result += 1000 * (aPerformance.audience - 30);
+      }
+      break;
+    case "comedy":
+      result = 30000;
+      if (aPerformance.audience > 20) {
+        result += 10000 + 500 * (aPerformance.audience - 20);
+      }
+      result += 300 * aPerformance.audience;
+      break;
+    default:
+      throw new Error(`unknown type: ${playFor(aPerformance).type}`);
+    }
+    return result;
+  }
+#+end_src
+
+Yes: compile, test, commit.
+
+Now, it's true that the previous code looked up the play only once in
+each loop iteration. Now it does so thrice. However, according to
+Fowler, (i) this is unlikely to have a performance impact, and (ii)
+the changes make it easier to improve the code if we need to.
+
+Finally:
+#+begin_src js
+  //top level...
+  function statement (invoice, plays) {
+    let totalAmount = 0;
+    let volumeCredits = 0;
+    let result = `Statement for ${invoice.customer}\n`;
+    const format = new Intl.NumberFormat("en-US",
+                                         { style: "currency", currency: "USD",
+                                           minimumFractionDigits: 2 }).format;
+    for (let perf of invoice.performances) {
+      // add volume credits
+      volumeCredits += Math.max(perf.audience - 30, 0);
+      // add extra credit for every ten comedy attendees
+      if ("comedy" === playFor(perf).type) volumeCredits += Math.floor(perf.audience / 5);
+      // print line for this order
+      result += ` ${playFor(perf).name}: ${format(amountFor(perf)/100)} (${perf.audience} seats)\n`;
+      totalAmount += amountFor(perf);
+    }
+    result += `Amount owed is ${format(totalAmount/100)}\n`;
+    result += `You earned ${volumeCredits} credits\n`;
+    return result;
+#+end_src
